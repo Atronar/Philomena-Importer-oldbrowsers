@@ -431,8 +431,8 @@ function getImageInfo(url) {
     const cdnRegexStr = concatDomains(boorus, 'cdnDomains');
     const regex = new RegExp(
       'https?://(?:www\\.)?(?:' +
-        `(?<domain>${domainRegexStr})/(?:images/)?(?<domID>\\d+)(?:\\?.*|/|\\.html)?|` +
-        `(?<cdn>${cdnRegexStr})/img/(?:view/|download/)?\\d+/\\d+/\\d+/(?<cdnID>\\d+)` +
+        `(${domainRegexStr})/(?:images/)?(\\d+)(?:\\?.*|/|\\.html)?|` +
+        `(${cdnRegexStr})/img/(?:view/|download/)?\\d+/\\d+/\\d+/(\\d+)` +
       ')', 'i');
 
     const result = regex.exec(url);
@@ -440,7 +440,7 @@ function getImageInfo(url) {
       throw Error('no_match');
     }
 
-    const {domain, cdn, domID, cdnID} = result.groups;
+    const [, domain, domID, cdn, cdnID] = result;
     const matchedDomain = domain || cdn;
     const booruData = getDomainInfo(matchedDomain);
     const id = domID || cdnID;
