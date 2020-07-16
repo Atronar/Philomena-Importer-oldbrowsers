@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Derpibooru Image Importer
 // @description  Import image and tags from Philomena-based boorus
-// @version      1.4.3
+// @version      1.4.5
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -45,8 +45,8 @@ const boorus = {
   ponerpics: {
     primaryDomain: 'https://ponerpics.org',
     prettyName: 'Ponerpics',
-    booruDomains: ['ponerpics.org'],
-    cdnDomains: ['ponerpics.org'],
+    booruDomains: ['ponerpics.org', 'ponerpics.com'],
+    cdnDomains: ['ponerpics.org', 'ponerpics.com'],
   }
 };
 
@@ -58,6 +58,7 @@ const DEFAULT_TAG_BLACKLIST = [
   'comments more entertaining',
   'debate in the comments',
   'derail in the comments',
+  'derpibooru exclusive',
   'discussion in the comments',
   'duckery in the comments',
   'featured image',
@@ -183,8 +184,14 @@ async function importImage(imageID, booruData) {
 
   // fetch image metadata
   const json = await makeRequest(`${primaryDomain}/api/v1/json/images/` + imageID).then(resp => resp.response);
-  const fileURL = makeAbsolute(json.image.representations.full, primaryDomain);
   const {description, tags, mime_type: mimeType, source_url: source, name: fileName} = json.image;
+
+  // special case for svg uploads
+  const fileURL = (mimeType !== 'image/svg+xml')
+    ? json.image.representations.full
+    : json.image.representations.full.replace('/view/', /download/).replace(/\.\w+$/, '.svg');
+  console.log(fileURL);
+
   const tagInput = $('#image_tag_input');
   const fancyEditor = tagInput.classList.contains('hidden');
 
@@ -216,7 +223,7 @@ async function importImage(imageID, booruData) {
   // fetch full image
   const fileField = $('#image_image');
   const imgBlob = await makeRequest(
-    fileURL,
+    makeAbsolute(fileURL, primaryDomain),
     'blob',
     progressCallback,
     importButton
@@ -336,11 +343,12 @@ function initImageImport() {
 }
 
 function initUI(){
-  const content = $('#content');                  // the closest parent element that persists after saving tags
-  const imageTarget = $('#image_target');         // used to check for image page
-  const fetchButton = $('#js-scraper-preview');   // image scraper button
+  const content = $('#content');                      // the closest parent element that persists after saving tags
+  const imageTarget = $('#image_target');             // used to check for image page
+  const noThumb = $('#thumbnails-not-yet-generated'); // used to check for image page during image processing
+  const fetchButton = $('#js-scraper-preview');       // image scraper button
 
-  if (content && imageTarget) {
+  if (content && (imageTarget || noThumb)) {
     const observer = new MutationObserver(records => {
       for (const record of records) {
         for (const node of record.addedNodes) {
