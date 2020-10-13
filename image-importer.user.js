@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Derpibooru Image Importer
 // @description  Import image and tags from Philomena-based boorus
-// @version      1.5.1
+// @version      1.6.4
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -27,6 +27,8 @@
 // @noframes
 // @require      https://github.com/marktaiwan/Derpibooru-Unified-Userscript-Ui/raw/master/derpi-four-u.js?v1.2.3
 // ==/UserScript==
+
+/* global ConfigManager */
 
 (function () {
 'use strict';
@@ -58,27 +60,45 @@ const boorus = {
     cdnDomains: ['cdn.twibooru.org', 'cdn.twibooru.com'],
     bor: true,
   },
+  manebooru: {
+    primaryDomain: 'https://manebooru.art/',
+    prettyName: 'Manebooru',
+    booruDomains: ['manebooru.art'],
+    cdnDomains: ['static.manebooru.art'],
+  },
 };
 
 const DEFAULT_TAG_BLACKLIST = [
   'adventure in the comments',
+  'banned from derpibooru',
+  'banned tags',
   'changelings in the comments',
   'clopfic in the comments',
   'comments locked down',
   'comments more entertaining',
   'debate in the comments',
+  'deleted from derpibooru',
   'derail in the comments',
   'derpibooru exclusive',
   'derpibooru import',
   'discussion in the comments',
   'duckery in the comments',
   'featured image',
+  'hfh',
+  'imported from derpibooru',
   'index get',
+  'manebooru exclusive',
   'politics in the comments',
+  'ponerpics exclusive',
+  'ponerpics import',
+  'ponibooru import',
+  'ponybooru exclusive',
+  'ponybooru import',
   'shipping war in the comments',
   'song in the comments',
   'story in the comments',
   'translated in the comments',
+  'twibooru exclusive',
 ];
 
 const config = ConfigManager(
@@ -133,6 +153,13 @@ tagFieldset.registerSetting({
   type: 'checkbox',
   defaultValue: true
 });
+tagFieldset.registerSetting({
+  title: 'Subscribe to default filter',
+  key: 'sub_default',
+  description: 'Filter tags from the default list in addition to the user defined tags. The list stays current with script updates.',
+  type: 'checkbox',
+  defaultValue: true
+});
 const tagEntry = tagFieldset.registerSetting({
   title: 'Remove these tags:',
   key: 'tag_blacklist',
@@ -141,18 +168,13 @@ const tagEntry = tagFieldset.registerSetting({
   defaultValue: DEFAULT_TAG_BLACKLIST.join(', ')
 });
 
-// setting migration 1.2.5 -> 1.3.0
-if (config.getEntry('derpi_source') !== undefined) {
-  config.setEntry('origin_source', config.getEntry('derpi_source'));
-  config.deleteEntry('derpi_source');
-}
-
 const LINK_FIX = config.getEntry('link_fix');
 const ORIGIN_SOURCE = config.getEntry('origin_source');
 const INDICATE_IMPORT = config.getEntry('indicate_import');
 const ORIG_UPLOAD_DATE = config.getEntry('orig_upload_date');
 const ORIG_UPLOADER = config.getEntry('orig_uploader');
 const TAG_FILTER = config.getEntry('tag_filter');
+const SUB_DEFAULT = config.getEntry('sub_default');
 
 /*
  *  Perform coding surgery to change input field into textarea
@@ -213,7 +235,7 @@ async function importImage(imageID, booruData) {
     ? metadata.representations.full
     : metadata.representations.full.replace('/view/', /download/).replace(/\.\w+$/, '.svg');
 
-  const tagInput = $('#image_tag_input');
+  const tagInput = $('#image_tag_input, #tags-form_tag_input');
   const fancyEditor = tagInput.classList.contains('hidden');
 
   // change to plain editor
@@ -230,7 +252,9 @@ async function importImage(imageID, booruData) {
       : '';
 
   // add tags
-  tagInput.value = performTagFilter(tags).join(', ');
+  const newTags = performTagFilter(tags);
+  performTagCleanUp(newTags);
+  tagInput.value = newTags.join(', ');
 
   // add description
   $('#image_description').value = processDescription(description, imageID, booruData, metadata);
@@ -248,22 +272,26 @@ async function importImage(imageID, booruData) {
     'blob',
     progressCallback,
     importButton
-  ).then(resp => resp.response);
+  ).then(resp => (resp.status == 200) ? resp.response : null);
 
-  // create a file list to be assigned to input
-  const list = new DataTransfer();
-  list.items.add(new File([imgBlob], fileName, {type: mimeType}));
+  if (imgBlob !== null) {
+    // create a file list to be assigned to input
+    const list = new DataTransfer();
+    list.items.add(new File([imgBlob], fileName, {type: mimeType}));
 
-  fileField.files = list.files;
+    fileField.files = list.files;
 
-  // dispatch change event to file input
-  fileField.dispatchEvent(new Event('change'));
+    // dispatch change event to file input
+    fileField.dispatchEvent(new Event('change'));
+  } else {
+    importButton.innerText = 'Error';
+  }
 
   importButton.innerText = 'Import';
 }
 
 async function importTags(imageID, booruData) {
-  const tagInput = $('#image_tag_input');
+  const tagInput = $('#image_tag_input, #tags-form_tag_input');
   const fancyEditor = tagInput.classList.contains('hidden');
   const importButton = $(`#${SCRIPT_ID}_tag_import_button`);
   importButton.innerText = 'Loading...';
@@ -288,9 +316,7 @@ async function importTags(imageID, booruData) {
     tagPool.push(tag);
   }
 
-  // tag cleaning
-  if (tagPool.some(tag => tag.startsWith('artist:'))) removeTag(tagPool, 'artist needed');
-  if (tagPool.some(tag => tag.startsWith('oc:'))) removeTag(tagPool, 'unknown oc');
+  performTagCleanUp(tagPool);
 
   tagInput.value = tagPool.join(', ');
 
@@ -518,16 +544,51 @@ function getDomainInfo(domain) {
 
 function performTagFilter(tagList) {
   if (TAG_FILTER) {
-    const filtered_tags = tagsToArray(config.getEntry('tag_blacklist'));
+    const userFilter = tagsToArray(config.getEntry('tag_blacklist'));
+    const filtered_tags = SUB_DEFAULT
+      ? [...DEFAULT_TAG_BLACKLIST, ...userFilter]   // Dupes doesn't matter
+      : userFilter;
     return tagList.filter(tag => !filtered_tags.includes(tag));
   } else {
     return tagList;
   }
 }
 
+function performTagCleanUp(tagPool) {
+  if (tagPool.some(tag => tag.startsWith('artist:'))) removeTag(tagPool, 'artist needed');
+  if (tagPool.some(tag => tag.startsWith('oc:'))) removeTag(tagPool, 'unknown oc');
+  if (tagPool.some(tag => tag.startsWith('ponified:'))) {
+    tagPool.forEach(removeNamespace('ponified:'));
+    addTag(tagPool, 'ponified');
+  }
+  tagPool.forEach(removeNamespace('species:'));
+  replaceTag(tagPool, 'unofficial characters only', 'oc only');
+  replaceTag(tagPool, 'glow-in-the-dark', 'glow in the dark');
+  replaceTag(tagPool, 'unauthorized edit', 'edit');
+  replaceTag(tagPool, 'pony pussy', 'anatomically correct');
+  return tagPool;
+}
+
+function addTag(tagPool, tagToAdd) {
+  if (!tagPool.includes(tagToAdd)) tagPool.push(tagToAdd);
+}
+
 function removeTag(tagPool, tagToRemove) {
   const tagIndex = tagPool.findIndex(tag => tag == tagToRemove);
   if (tagIndex > -1) tagPool.splice(tagIndex, 1);
+}
+
+function replaceTag(tagPool, oldTag, newTag) {
+  if (tagPool.includes(oldTag)) {
+    removeTag(tagPool, oldTag);
+    addTag(tagPool, newTag);
+  }
+}
+
+function removeNamespace(namespace) {
+  return (tag, index, tagPool) => {
+    if (tag.startsWith(namespace)) tagPool[index] = tag.slice(namespace.length);
+  };
 }
 
 function tagsToArray(str) {
