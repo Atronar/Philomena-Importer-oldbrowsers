@@ -14,6 +14,9 @@
 // @match        *://*.ponybooru.org/*
 // @match        *://*.ponerpics.org/*
 // @match        *://*.ponerpics.com/*
+// @match        *://booru.bronyhub.com/*
+// @match        *://*.manebooru.art/*
+// @match        *://*.furbooru.org/*
 // @match        *://*.twibooru.org/*
 //
 // @connect      derpibooru.org
@@ -21,6 +24,9 @@
 // @connect      ponybooru.org
 // @connect      ponerpics.org
 // @connect      ponerpics.com
+// @connect      booru.bronyhub.com
+// @connect      manebooru.art
+// @connect      furbooru.org
 //
 // @inject-into  content
 // @grant        GM_xmlhttpRequest
@@ -66,6 +72,18 @@ const boorus = {
     booruDomains: ['manebooru.art'],
     cdnDomains: ['static.manebooru.art'],
   },
+  bronyhub: {
+    primaryDomain: 'https://booru.bronyhub.com/',
+    prettyName: 'Bronyhub',
+    booruDomains: ['booru.bronyhub.com'],
+    cdnDomains: ['booru.bronyhub.com'],
+  },
+  furbooru: {
+    primaryDomain: 'https://furbooru.org/',
+    prettyName: 'Furbooru',
+    booruDomains: ['furbooru.org'],
+    cdnDomains: ['furrycdn.org'],
+  },
 };
 
 const DEFAULT_TAG_BLACKLIST = [
@@ -84,6 +102,7 @@ const DEFAULT_TAG_BLACKLIST = [
   'discussion in the comments',
   'duckery in the comments',
   'featured image',
+  'furbooru exclusive',
   'hfh',
   'imported from derpibooru',
   'index get',
